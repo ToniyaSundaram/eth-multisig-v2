@@ -1,5 +1,5 @@
-pragma solidity ^0.4.18;
-import "./ERC20Interface.sol";
+pragma solidity ^0.4.24;
+
 /**
  * Contract that will forward any incoming Ether to the creator of the contract
  */
@@ -11,7 +11,7 @@ contract Forwarder {
   /**
    * Create the contract, and sets the destination address to that of the creator
    */
-  function Forwarder() public {
+  constructor() public {
     parentAddress = msg.sender;
   }
 
@@ -32,23 +32,7 @@ contract Forwarder {
     // throws on failure
     parentAddress.transfer(msg.value);
     // Fire off the deposited event if we can forward it
-    ForwarderDeposited(msg.sender, msg.value, msg.data);
-  }
-
-  /**
-   * Execute a token transfer of the full balance from the forwarder token to the parent address
-   * @param tokenContractAddress the address of the erc20 token contract
-   */
-  function flushTokens(address tokenContractAddress) public onlyParent {
-    ERC20Interface instance = ERC20Interface(tokenContractAddress);
-    var forwarderAddress = address(this);
-    var forwarderBalance = instance.balanceOf(forwarderAddress);
-    if (forwarderBalance == 0) {
-      return;
-    }
-    if (!instance.transfer(parentAddress, forwarderBalance)) {
-      revert();
-    }
+    emit ForwarderDeposited(msg.sender, msg.value, msg.data);
   }
 
   /**

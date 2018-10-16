@@ -1,6 +1,5 @@
-pragma solidity ^0.4.18;
+pragma solidity ^0.4.24;
 import "./Forwarder.sol";
-import "./ERC20Interface.sol";
 /**
  *
  * WalletSimple
@@ -31,6 +30,8 @@ contract WalletSimple {
   // Events
   event Deposited(address from, uint value, bytes data);
   event SafeModeActivated(address msgSender);
+  event SignerAddition(address signer);
+  event SignerRemoval(address signer);
   event Transacted(
     address msgSender, // Address of the sender of the message initiating the transaction
     address otherSigner, // Address of the signer (second signature) used to initiate the transaction
@@ -56,8 +57,8 @@ contract WalletSimple {
    *
    * @param allowedSigners An array of signers on the wallet
    */
-  function WalletSimple(address[] allowedSigners) public {
-    if (allowedSigners.length != 3) {
+  constructor(address[] allowedSigners) public {
+    if (allowedSigners.length > 4) {
       // Invalid number of signers
       revert();
     }
@@ -100,7 +101,32 @@ contract WalletSimple {
   }
 
   /**
-   * Create a new contract (and also address) that forwards funds to this contract
+   * @dev allows to add a new signer
+   * @param _allowedSigner signer addresss of the new signer
+  */
+  function addSigner(address _allowedSigner) public onlySigner{
+    require(signers.length < 3);
+    signers.push(_allowedSigner);
+    emit SignerAddition(_allowedSigner);
+  }
+
+  /**
+   * @dev allows to remove an existing signer
+   * @param _signer signer addresss of the old signer
+  */
+  function removeSigner(address _signer) public onlySigner{
+    for (uint i = 0; i < signers.length; i++) {
+      if (signers[i] == _signer) {
+        signers[i] = signers[signers.length -1];
+        break;
+      }
+    }
+    signers.length =signers.length-1;
+    emit SignerRemoval(_signer);
+  }
+
+  /**
+   * Create a new contract  (and also address) that forwards funds to this contract
    * returns address of newly created forwarder address
    */
   function createForwarder() public returns (address) {
@@ -118,7 +144,7 @@ contract WalletSimple {
    * @param sequenceId the unique sequence id obtainable from getNextSequenceId
    * @param signature see Data Formats
    */
-  function sendMultiSig(
+  function sendMultiSig (
       address toAddress,
       uint value,
       bytes data,
@@ -127,9 +153,9 @@ contract WalletSimple {
       bytes signature
   ) public onlySigner {
     // Verify the other signer
-    var operationHash = keccak256("ETHER", toAddress, value, data, expireTime, sequenceId);
-    
-    var otherSigner = verifyMultiSig(toAddress, operationHash, signature, expireTime, sequenceId);
+    bytes32 operationHash = keccak256("ETHER", toAddress, value, data, expireTime, sequenceId);
+
+    address otherSigner = verifyMultiSig(toAddress, operationHash, signature, expireTime, sequenceId);
 
     // Success, send the transaction
     if (!(toAddress.call.value(value)(data))) {
@@ -138,50 +164,8 @@ contract WalletSimple {
     }
     Transacted(msg.sender, otherSigner, operationHash, toAddress, value, data);
   }
-  
-  /**
-   * Execute a multi-signature token transfer from this wallet using 2 signers: one from msg.sender and the other from ecrecover.
-   * Sequence IDs are numbers starting from 1. They are used to prevent replay attacks and may not be repeated.
-   *
-   * @param toAddress the destination address to send an outgoing transaction
-   * @param value the amount in tokens to be sent
-   * @param tokenContractAddress the address of the erc20 token contract
-   * @param expireTime the number of seconds since 1970 for which this transaction is valid
-   * @param sequenceId the unique sequence id obtainable from getNextSequenceId
-   * @param signature see Data Formats
-   */
-  function sendMultiSigToken(
-      address toAddress,
-      uint value,
-      address tokenContractAddress,
-      uint expireTime,
-      uint sequenceId,
-      bytes signature
-  ) public onlySigner {
-    // Verify the other signer
-    var operationHash = keccak256("ERC20", toAddress, value, tokenContractAddress, expireTime, sequenceId);
-    
-    verifyMultiSig(toAddress, operationHash, signature, expireTime, sequenceId);
-    
-    ERC20Interface instance = ERC20Interface(tokenContractAddress);
-    if (!instance.transfer(toAddress, value)) {
-        revert();
-    }
-  }
-  
-  /**
-   * Execute a token flush from one of the forwarder addresses. This transfer needs only a single signature and can be done by any signer
-   *
-   * @param forwarderAddress the address of the forwarder address to flush the tokens from
-   * @param tokenContractAddress the address of the erc20 token contract
-   */
-  function flushForwarderTokens(
-    address forwarderAddress, 
-    address tokenContractAddress
-  ) public onlySigner {
-    Forwarder forwarder = Forwarder(forwarderAddress);
-    forwarder.flushTokens(tokenContractAddress);
-  }
+
+
 
   /**
    * Do common multisig verification for both eth sends and erc20token transfers
@@ -201,7 +185,7 @@ contract WalletSimple {
       uint sequenceId
   ) private returns (address) {
 
-    var otherSigner = recoverAddressFromSignature(operationHash, signature);
+    address otherSigner = recoverAddressFromSignature(operationHash, signature);
 
     // Verify if we are in safe mode. In safe mode, the wallet can only send to signers
     if (safeMode && !isSigner(toAddress)) {
