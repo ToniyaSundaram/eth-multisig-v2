@@ -41,6 +41,6 @@ contract Forwarder {
    */
   function flush() public {
     // throws on failure
-    parentAddress.transfer(this.balance);
+    parentAddress.transfer(address(this).balance);
   }
 }
